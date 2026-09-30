@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="ad.size" content="width=320,height=480">
+<title>Nostalgia — Que jogo é esse?</title>
+<!--
+  PLAYABLE AD do Nostalgia. HTML ÚNICO e autocontido: sem rede, sem arquivo
+  externo. A fonte e a silhueta entram em base64 pelo playable_tetris/build.cjs.
+
+  ORIGEM DE TUDO QUE ESTÁ AQUI (é anúncio, então importa):
+    - Áudio: 100% SINTETIZADO em Web Audio, nenhum arquivo. A música é
+      "Korobeiniki", canção folclórica russa de 1861 (domínio público), num
+      arranjo PRÓPRIO — NÃO é a gravação/arranjo do Game Boy (Nintendo).
+    - Imagem: só a silhueta do canal Jogos (arte própria, controle genérico).
+      A TV, o controle, a moeda e o fundo são desenhados em CSS.
+      NÃO usar scene_bg.webp nem channel_*.webp: têm He-Man, Sonic, Mario etc.
+    - Fonte: Press Start 2P, licença SIL OFL (embutir é permitido).
+    - O que SOBRA de risco é a PALAVRA "TETRIS" como resposta: é marca
+      registrada da The Tetris Company. Trocar em CONFIG.answer se decidir.
+-->
+<style>
+@font-face{font-family:"PS2P";src:url(data:font/ttf;base64,__FONT_PRESS_START__) format("truetype");font-display:block}
+:root{
+  --bg:#1a1530;--panel:#272042;--accent:#ffc857;--accent2:#4ecdc4;
+  --correct:#6bcb77;--wrong:#e15554;--tvy:#faff66;
+  --key:#3a3a3c;--slot-ink:#1c9c9c;--slot-lock:#b8f0ea;--s:1;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{width:100%;height:100%;overflow:hidden;touch-action:manipulation}
+body{
+  background-color:var(--bg);
+  /* papel de parede retrô ORIGINAL (losangos), não a arte da sala do app */
+  background-image:
+    radial-gradient(circle at 50% 50%,rgba(255,200,87,.07) 0 22%,transparent 23%),
+    linear-gradient(45deg,rgba(78,205,196,.05) 25%,transparent 25% 75%,rgba(78,205,196,.05) 75%),
+    linear-gradient(-45deg,rgba(78,205,196,.05) 25%,transparent 25% 75%,rgba(78,205,196,.05) 75%);
+  background-size:44px 44px,44px 44px,44px 44px;
+  font-family:"PS2P",monospace;color:#fff;
+}
+/* palco fixo 360x640, escalado para caber em qualquer tela / orientação */
+#stage{position:absolute;left:50%;top:50%;width:360px;height:640px;z-index:1;
+  transform:translate(-50%,-50%) scale(var(--s));transform-origin:50% 50%;overflow:hidden}
+/* Escurece a tela INTEIRA durante abertura e fim. Os overlays moram dentro do
+   palco e só cobrem 360x640; sem isto, num celular comprido, as faixas acima e
+   abaixo ficavam com o papel de parede aceso e aparecia uma emenda reta. */
+#backdrop{position:fixed;inset:0;z-index:0;background:rgba(22,18,42,.95);opacity:0;pointer-events:none;transition:opacity .45s}
+#backdrop.on{opacity:1;pointer-events:auto;cursor:pointer}
+
+/* ---------- barra de topo ---------- */
+#top{position:absolute;left:0;right:0;top:10px;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:5}
+.logo{font-size:15px;letter-spacing:1px;
+  background:linear-gradient(#fff 0%,#cfd6e6 45%,#8f9ab2 55%,#e9eef8 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 2px 0 #0008)}
+.install{font-family:inherit;font-size:8px;color:#1a1530;background:var(--accent);border:0;border-radius:20px;
+  padding:7px 10px;box-shadow:0 2px 0 #b38a2e;cursor:pointer}
+.coins{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--tvy)}
+.coin{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:10px;color:#c9a100;
+  background:radial-gradient(circle at 35% 30%,#fff 0 35%,#f3f3f3 36% 62%,transparent 63%),#e2ef00;
+  box-shadow:0 0 0 2px #2b2b2b,inset 0 0 0 2px #d4c400}
+
+/* ---------- TV ---------- */
+#tv{position:absolute;left:28px;top:54px;width:304px;height:246px}
+.tv-body{position:absolute;inset:0 0 18px 0;border-radius:26px;
+  background:
+    repeating-linear-gradient(95deg,rgba(0,0,0,.07) 0 3px,transparent 3px 9px),
+    linear-gradient(160deg,#9b5e32,#6e3d1d 55%,#4d2913);
+  box-shadow:inset 0 2px 0 #c98a55,inset 0 -4px 0 #3a1e0d,0 10px 24px #0009}
+.screen-wrap{position:absolute;left:14px;top:14px;width:216px;height:196px;border-radius:22px/26px;overflow:hidden;
+  background:#000;box-shadow:0 0 0 7px #1c1c1c,0 0 0 9px #0c0c0c,inset 0 0 26px #000}
+#static,#sil{position:absolute;inset:0;width:100%;height:100%}
+#static{image-rendering:pixelated}
+#sil{object-fit:cover;opacity:0;transition:opacity .35s}
+#sil.on{opacity:1;animation:flick 3s infinite}
+@keyframes flick{0%,100%{filter:brightness(1)}48%{filter:brightness(1.04)}50%{filter:brightness(.9)}52%{filter:brightness(1.05)}}
+.scan{position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);mix-blend-mode:multiply}
+.glare{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 30% 18%,rgba(255,255,255,.22),transparent 45%),
+             radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(0,0,0,.55) 100%)}
+.osd{position:absolute;left:12px;top:11px;font-size:8px;color:var(--tvy);text-shadow:0 0 4px var(--tvy),2px 2px 0 #000;opacity:0;transition:opacity .3s}
+.osd.on{opacity:1}
+/* equalizador: mostra que há música tocando mesmo com o som desligado */
+.eq{position:absolute;right:14px;bottom:14px;display:flex;align-items:flex-end;gap:3px;height:22px;opacity:0;transition:opacity .3s}
+.eq.on{opacity:1}
+.eq i{display:block;width:5px;background:var(--tvy);box-shadow:0 0 4px var(--tvy);animation:eq .6s infinite alternate}
+.eq i:nth-child(2){animation-delay:.15s}.eq i:nth-child(3){animation-delay:.3s}
+.eq i:nth-child(4){animation-delay:.05s}.eq i:nth-child(5){animation-delay:.22s}
+@keyframes eq{from{height:4px}to{height:22px}}
+.tv-side{position:absolute;right:14px;top:18px;width:58px;bottom:32px;border-radius:10px;
+  background:linear-gradient(#2a2a2a,#161616);box-shadow:inset 0 0 0 2px #0b0b0b;display:flex;flex-direction:column;align-items:center;padding-top:16px;gap:16px}
+.knob{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#9a9a9a,#3b3b3b 60%,#1a1a1a);box-shadow:0 2px 0 #000}
+.grille{width:40px;height:44px;background:repeating-linear-gradient(0deg,#0a0a0a 0 3px,#303030 3px 6px);border-radius:4px}
+.led{width:9px;height:9px;border-radius:50%;background:#401010;transition:.2s}
+.led.on{background:#ff4040;box-shadow:0 0 8px #ff4040}
+.legs span{position:absolute;bottom:0;width:18px;height:20px;background:#2a1609;border-radius:0 0 4px 4px}
+.legs span:first-child{left:40px}.legs span:last-child{right:40px}
+
+/* ---------- pergunta + slots ---------- */
+#ask{position:absolute;left:0;right:0;top:310px;text-align:center;font-size:10px;color:var(--accent);min-height:14px}
+#slots{position:absolute;left:0;right:0;top:332px;display:flex;justify-content:center;gap:6px}
+.slot{width:36px;height:46px;border-radius:5px;background:#fff;display:grid;place-items:center;
+  font-size:18px;color:var(--slot-ink);box-shadow:0 3px 0 #0005;transition:background .2s,transform .15s}
+.slot.lock{background:var(--slot-lock)}
+.slot.ok{background:var(--correct);color:#fff}
+#slots.shake{animation:shake .38s}
+@keyframes shake{20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+#bubble{position:absolute;left:24px;right:24px;top:388px;background:#fff;color:#1a1530;border-radius:10px;padding:8px 10px;
+  font-family:system-ui,sans-serif;font-size:12px;font-weight:700;text-align:center;line-height:1.35;
+  opacity:0;transform:translateY(6px);transition:.3s;pointer-events:none;z-index:4}
+#bubble.on{opacity:1;transform:none}
+#bubble b{color:#e15554}
+
+/* ---------- controle remoto + teclado ---------- */
+#remote{position:absolute;left:10px;right:10px;top:430px;bottom:-12px;border-radius:26px 26px 0 0;
+  background:repeating-linear-gradient(90deg,rgba(255,255,255,.018) 0 1px,transparent 1px 4px),linear-gradient(#2b2b2e,#171719);
+  box-shadow:inset 0 2px 0 #444,0 -6px 20px #0008}
+#keys{position:absolute;left:16px;right:16px;top:442px;display:grid;grid-template-columns:repeat(8,1fr);gap:5px}
+.key{height:40px;border-radius:8px;background:var(--key);border:1px solid rgba(255,255,255,.24);
+  color:#fff;font-family:inherit;font-size:14px;display:grid;place-items:center;cursor:pointer;
+  box-shadow:0 3px 0 #111;transition:opacity .15s,transform .08s}
+.key:active{transform:translateY(2px);box-shadow:0 1px 0 #111}
+.key.used{opacity:.18;pointer-events:none}
+#actions{position:absolute;left:16px;right:16px;top:540px;display:flex;gap:8px}
+.act{flex:1;height:44px;border:0;border-radius:12px;font-family:inherit;font-size:9px;color:#fff;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 4px 0 #0007}
+.act:active{transform:translateY(2px)}
+#del{background:linear-gradient(#5a5a5e,#3d3d41)}
+#hint{background:linear-gradient(#56b7ec,#2e93d4)}
+#hint.nudge{animation:nudge 1s infinite}
+@keyframes nudge{0%,100%{box-shadow:0 4px 0 #0007,0 0 0 0 rgba(86,183,236,.8)}50%{box-shadow:0 4px 0 #0007,0 0 0 10px rgba(86,183,236,0)}}
+.act .coin{width:16px;height:16px;font-size:7px}
+#tag{position:absolute;left:0;right:0;top:600px;text-align:center;font-size:7px;color:#ffffff66}
+
+/* ---------- abertura (toque exigido para liberar o áudio) ---------- */
+.overlay{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+#intro{background:radial-gradient(ellipse at 50% 38%,#272042dd,#1a1530f5 70%);gap:22px;cursor:pointer}
+#intro h1{font-size:13px;line-height:1.7;color:var(--tvy);text-shadow:2px 2px 0 #000;padding:0 20px}
+#intro p{font-size:8px;color:#ffffffaa;line-height:1.8}
+.power{width:92px;height:92px;border-radius:50%;border:0;cursor:pointer;
+  background:radial-gradient(circle at 40% 30%,#ff7a55,#e8401e 60%,#b52a10);
+  box-shadow:0 6px 0 #7a1b08,0 12px 28px #000a;display:grid;place-items:center;animation:pulse 1.4s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.power svg{width:44px;height:44px}
+
+/* ---------- tela final ---------- */
+#end{background:rgba(20,16,38,.94);gap:16px;opacity:0;pointer-events:none;transition:opacity .45s;cursor:pointer;padding:0 22px}
+#end.on{opacity:1;pointer-events:auto}
+#end .big{font-size:24px;color:var(--tvy);text-shadow:3px 3px 0 #000;animation:pop .5s}
+@keyframes pop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+#end .ans{font-size:16px;letter-spacing:4px;color:#fff}
+#end .gain{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tvy)}
+#end .more{font-family:system-ui,sans-serif;font-weight:800;font-size:17px;line-height:1.35;color:#fff}
+#end .more span{color:var(--accent)}
+#end .chips{font-family:system-ui,sans-serif;font-size:12px;color:#ffffffb0;line-height:1.7}
+.cta{font-family:inherit;font-size:13px;color:#fff;background:linear-gradient(#7ad886,#4fae5b);border:0;border-radius:14px;
+  padding:18px 26px;box-shadow:0 6px 0 #2f7a39,0 10px 26px #0009;cursor:pointer;animation:pulse 1.2s infinite}
+
+/* moedas voando no acerto */
+.fly{position:absolute;z-index:30;pointer-events:none;animation:fly .9s ease-out forwards}
+@keyframes fly{to{transform:translate(var(--dx),var(--dy)) scale(.5);opacity:0}}
+</style>
+</head>
+<body>
+<div id="backdrop" class="on"></div>
+<div id="stage">
+  <div id="top">
+    <button class="install" id="topcta">INSTALAR</button>
+    <div class="logo">NOSTALGIA</div>
+    <div class="coins"><span class="coin">N</span><span id="coinN">0</span></div>
+  </div>
+
+  <div id="tv">
+    <div class="tv-body">
+      <div class="screen-wrap">
+        <canvas id="static" width="96" height="88"></canvas>
+        <img id="sil" alt="" src="data:image/webp;base64,__IMG_SILHOUETTE__">
+        <div class="eq" id="eq"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="scan"></div><div class="glare"></div>
+        <div class="osd" id="osd"></div>
+      </div>
+      <div class="tv-side"><span class="knob"></span><span class="knob"></span><span class="grille"></span><span class="led" id="led"></span></div>
+    </div>
+    <div class="legs"><span></span><span></span></div>
+  </div>
+
+  <div id="ask"></div>
+  <div id="slots"></div>
+  <div id="bubble"></div>
+
+  <div id="remote"></div>
+  <div id="keys"></div>
+  <div id="actions">
+    <button class="act" id="del">⌫ APAGAR</button>
+    <button class="act" id="hint">REVELAR <span class="coin">N</span><span id="hintCost"></span></button>
+  </div>
+  <div id="tag">OUÇA · ADIVINHE · RELEMBRE</div>
+
+  <div class="overlay" id="intro">
+    <h1>OUÇA A MÚSICA<br>E ADIVINHE O JOGO</h1>
+    <button class="power" id="power" aria-label="Ligar a TV">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+    </button>
+    <p>TOQUE PARA LIGAR A TV<br>🔊 AUMENTE O VOLUME</p>
+  </div>
+
+  <div class="overlay" id="end">
+    <div class="big">ACERTOU!</div>
+    <div class="ans" id="endAns"></div>
+    <div class="gain"><span class="coin">N</span><span id="endGain"></span></div>
+    <div class="more">Mais <span id="endLeft"></span> fases de <span>NOSTALGIA</span> te esperam</div>
+    <div class="chips">🎮 Jogos · 📺 Desenhos · 🎬 Filmes · 📡 Programas de TV</div>
+    <button class="cta" id="cta">JOGAR GRÁTIS</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — o único lugar para trocar a pergunta.
+   ===================================================================== */
+var CONFIG = {
+  answer: "TETRIS",                 // ⚠ marca registrada da The Tetris Company
+  osd: "CH3 · JOGOS · FASE 8",
+  ask: "QUE JOGO É ESSE?",
+  hint: "Blocos caindo que você encaixa em linhas, <b>criação russa</b>",
+  keys: "OTARNESLUICTMPDB",         // 16 teclas (2 fileiras de 8, como no app)
+  startCoins: 12, hintCost: 2, winCoins: 2,
+  totalStages: 200,
+  store: {
+    android: "https://play.google.com/store/apps/details?id=com.stepy.nostalgia",
+    ios: "https://apps.apple.com/app/id6502999395"
+  }
+};
+
+/* =====================================================================
+   SAÍDA PARA A LOJA — cada rede tem o seu gancho. Tenta todos, na ordem.
+     MRAID (AppLovin, Unity, ironSource, Mintegral...)  -> mraid.open
+     Google Ads HTML5                                    -> ExitApi.exit
+     Meta                                                -> FbPlayableAd.onCTAClick
+     Sem nenhum (link solto / demo web)                  -> window.open
+   ===================================================================== */
+// iPadOS 13+ se apresenta como Mac ("Macintosh") — sem este segundo teste o
+// iPad caía no link da Google Play. O que denuncia o iPad é a tela de toque:
+// Mac não tem, iPad sempre tem mais de um ponto.
+function isIOS(){
+  var ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+function storeUrl(){ return isIOS() ? CONFIG.store.ios : CONFIG.store.android; }
+function openStore(){
+  try{
+    if (window.mraid && typeof mraid.open === "function") return mraid.open(storeUrl());
+    if (window.ExitApi && typeof ExitApi.exit === "function") return ExitApi.exit();
+    if (window.FbPlayableAd && typeof FbPlayableAd.onCTAClick === "function") return FbPlayableAd.onCTAClick();
+  }catch(e){}
+  window.open(storeUrl(), "_blank");
+}
+
+/* =====================================================================
+   ÁUDIO — tudo sintetizado. Nenhum arquivo, nenhuma gravação de terceiros.
+   ===================================================================== */
+var ac = null, master = null, pulse = null, musicTimer = null, musicOn = false;
+
+function audioInit(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ac = new AC();
+  master = ac.createGain(); master.gain.value = 0.55; master.connect(ac.destination);
+  // onda de pulso 25% (timbre de videogame 8 bits) montada por série de Fourier
+  var N = 32, re = new Float32Array(N), im = new Float32Array(N), d = 0.25;
+  for (var n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * d);
+  pulse = ac.createPeriodicWave(re, im);
+}
+
+function tone(freq, t, dur, opts){
+  opts = opts || {};
+  var o = ac.createOscillator(), g = ac.createGain(), v = opts.vol == null ? 0.14 : opts.vol;
+  if (opts.type) o.type = opts.type; else o.setPeriodicWave(pulse);
+  o.frequency.setValueAtTime(freq, t);
+  if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, t + dur);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(v, t + 0.006);
+  g.gain.setValueAtTime(v, t + dur * 0.8);
+  g.gain.linearRampToValueAtTime(0, t + dur * 0.97);
+  o.connect(g); g.connect(opts.bus || master);
+  o.start(t); o.stop(t + dur);
+}
+
+// Korobeiniki (folclore russo, 1861 — domínio público). Duração em tempos.
+// Melodia tradicional; o arranjo (baixo em triângulo, andamento) é deste arquivo.
+var F = {A4:440,B4:493.88,C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99,A5:880,
+         E2:82.41,E3:164.81,A2:110,A3:220,D2:73.42,D3:146.83,C2:65.41,C3:130.81};
+var MELODY = [
+  ["E5",1],["B4",.5],["C5",.5],["D5",1],["C5",.5],["B4",.5],
+  ["A4",1],["A4",.5],["C5",.5],["E5",1],["D5",.5],["C5",.5],
+  ["B4",1.5],["C5",.5],["D5",1],["E5",1],
+  ["C5",1],["A4",1],["A4",1],[null,1],
+  [null,.5],["D5",1],["F5",.5],["A5",1],["G5",.5],["F5",.5],
+  ["E5",1.5],["C5",.5],["E5",1],["D5",.5],["C5",.5],
+  ["B4",1],["B4",.5],["C5",.5],["D5",1],["E5",1],
+  ["C5",1],["A4",1],["A4",1],[null,1]
+];
+// baixo: fundamental de cada compasso, pulando oitava em colcheias
+var BASS = [["E2","E3"],["A2","A3"],["E2","E3"],["A2","A3"],["D2","D3"],["C2","C3"],["E2","E3"],["A2","A3"]];
+var BPM = 138, BEAT = 60 / BPM, LOOP = 32 * BEAT;
+
+function scheduleLoop(t0){
+  var t = t0;
+  MELODY.forEach(function(n){
+    if (n[0]) tone(F[n[0]], t, n[1] * BEAT * 0.92, {vol:0.11});
+    t += n[1] * BEAT;
+  });
+  BASS.forEach(function(b, bar){
+    for (var i = 0; i < 8; i++){
+      tone(F[b[i % 2]], t0 + bar * 4 * BEAT + i * BEAT / 2, BEAT / 2 * 0.85, {type:"triangle", vol:0.2});
+    }
+  });
+}
+function musicStart(){
+  if (!ac || musicOn) return;
+  musicOn = true;
+  var next = ac.currentTime + 0.08;
+  (function loop(){
+    if (!musicOn) return;
+    scheduleLoop(next);
+    next += LOOP;
+    musicTimer = setTimeout(loop, (next - ac.currentTime - 0.5) * 1000);
+  })();
+}
+function musicStop(){
+  musicOn = false; clearTimeout(musicTimer);
+  if (!ac) return;
+  master.gain.setTargetAtTime(0, ac.currentTime, 0.12);
+  setTimeout(function(){ master.gain.cancelScheduledValues(0); master.gain.value = 0.55; }, 700);
+}
+// para os efeitos não morrerem junto com o fade da música
+var sfxBus = null;
+function sfx(){ if (!sfxBus){ sfxBus = ac.createGain(); sfxBus.gain.value = 0.6; sfxBus.connect(ac.destination); } return sfxBus; }
+
+function sKey(){ if (!ac) return; tone(1320, ac.currentTime, 0.045, {vol:0.08, bus:sfx()}); }
+function sWrong(){ if (!ac) return; var t = ac.currentTime;
+  tone(330, t, 0.14, {vol:0.12, bus:sfx()}); tone(247, t + 0.14, 0.24, {vol:0.12, bus:sfx()}); }
+function sHint(){ if (!ac) return; tone(700, ac.currentTime, 0.18, {vol:0.1, to:1400, bus:sfx()}); }
+function sWin(){ if (!ac) return; var t = ac.currentTime;
+  [523.25,659.25,783.99,1046.5].forEach(function(f,i){ tone(f, t + i*0.09, 0.16, {vol:0.12, bus:sfx()}); });
+  tone(1318.5, t + 0.38, 0.4, {vol:0.12, bus:sfx()}); }
+function sCoin(){ if (!ac) return; tone(900, ac.currentTime, 0.12, {vol:0.08, to:1800, bus:sfx()}); }
+function sNoise(dur){
+  if (!ac) return;
+  var len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  var src = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(), t = ac.currentTime;
+  src.buffer = buf; bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 0.6;
+  g.gain.setValueAtTime(0.35, t); g.gain.linearRampToValueAtTime(0, t + dur);
+  src.connect(bp); bp.connect(g); g.connect(sfx()); src.start(t);
+}
+
+/* =====================================================================
+   TELA: chiado procedural no canvas
+   ===================================================================== */
+var cv = document.getElementById("static"), cx = cv.getContext("2d"), img = cx.createImageData(cv.width, cv.height), staticOn = true;
+(function drawStatic(){
+  if (staticOn){
+    var p = img.data;
+    for (var i = 0; i < p.length; i += 4){ var v = Math.random() * 200 | 0; p[i] = v; p[i+1] = v; p[i+2] = v + 20; p[i+3] = 255; }
+    cx.putImageData(img, 0, 0);
+  }
+  requestAnimationFrame(drawStatic);
+})();
+
+/* =====================================================================
+   JOGO
+   ===================================================================== */
+var $ = function(id){ return document.getElementById(id); };
+var ANSWER = CONFIG.answer.toUpperCase();
+var slots = [];      // {ch, key, lock}
+var keys = [];       // {ch, used, el}
+var coins = CONFIG.startCoins, won = false, started = false, wrongs = 0, idleTimer = null;
+
+function buildSlots(){
+  var box = $("slots"); box.innerHTML = "";
+  slots = ANSWER.split("").map(function(){ var el = document.createElement("div"); el.className = "slot"; box.appendChild(el); return {ch:null, key:-1, lock:false, el:el}; });
+}
+function buildKeys(){
+  var box = $("keys"); box.innerHTML = "";
+  keys = CONFIG.keys.toUpperCase().split("").map(function(ch, i){
+    var el = document.createElement("button"); el.className = "key"; el.textContent = ch;
+    el.addEventListener("pointerdown", function(e){ e.preventDefault(); press(i); });
+    box.appendChild(el);
+    return {ch:ch, used:false, el:el};
+  });
+}
+function render(){
+  slots.forEach(function(s){ s.el.textContent = s.ch || ""; s.el.classList.toggle("lock", s.lock); });
+  keys.forEach(function(k){ k.el.classList.toggle("used", k.used); });
+  $("coinN").textContent = coins;
+}
+function firstFree(){ for (var i = 0; i < slots.length; i++) if (!slots[i].ch) return i; return -1; }
+
+function press(i){
+  if (!started || won) return;
+  var k = keys[i], at = firstFree();
+  if (k.used || at < 0) return;
+  sKey(); poke();
+  k.used = true; slots[at].ch = k.ch; slots[at].key = i;
+  render();
+  if (firstFree() < 0) check();
+}
+function del(){
+  if (!started || won) return;
+  for (var i = slots.length - 1; i >= 0; i--){
+    var s = slots[i];
+    if (s.ch && !s.lock){ keys[s.key].used = false; s.ch = null; s.key = -1; sKey(); poke(); render(); return; }
+  }
+}
+function clearTyped(){
+  slots.forEach(function(s){ if (s.ch && !s.lock){ keys[s.key].used = false; s.ch = null; s.key = -1; } });
+}
+// Revela a próxima letra certa. Nunca trava o jogador: sem moeda, sai grátis —
+// um anúncio que bloqueia a pessoa no meio perde a instalação.
+function hint(){
+  if (!started || won) return;
+  clearTyped();
+  var at = firstFree(); if (at < 0) return;
+  var want = ANSWER[at], ki = -1;
+  for (var i = 0; i < keys.length; i++) if (!keys[i].used && keys[i].ch === want){ ki = i; break; }
+  if (ki < 0) return;
+  keys[ki].used = true; slots[at].ch = want; slots[at].key = ki; slots[at].lock = true;
+  coins = Math.max(0, coins - CONFIG.hintCost);
+  sHint(); poke(); render();
+  if (firstFree() < 0) check();
+}
+function check(){
+  var guess = slots.map(function(s){ return s.ch; }).join("");
+  if (guess === ANSWER) return win();
+  wrongs++; sWrong();
+  var box = $("slots"); box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake");
+  setTimeout(function(){ clearTyped(); render(); }, 420);
+  if (wrongs >= 1) showBubble();
+  if (wrongs >= 2) $("hint").classList.add("nudge");
+}
+function win(){
+  won = true; clearTimeout(idleTimer);
+  slots.forEach(function(s, i){ setTimeout(function(){ s.el.classList.add("ok"); }, i * 70); });
+  $("hint").classList.remove("nudge"); $("bubble").classList.remove("on");
+  musicStop(); sWin();
+  coins += CONFIG.winCoins;
+  setTimeout(function(){ burst(); render(); }, 350);
+  $("endAns").textContent = ANSWER;
+  $("endGain").textContent = "+" + CONFIG.winCoins + " MOEDAS";
+  $("endLeft").textContent = CONFIG.totalStages - 1;
+  setTimeout(function(){ $("end").classList.add("on"); $("backdrop").classList.add("on"); }, 1500);
+}
+function burst(){
+  var stage = $("stage"), from = $("slots").getBoundingClientRect(), sr = stage.getBoundingClientRect(), s = sr.width / 360;
+  for (var i = 0; i < 9; i++){
+    var c = document.createElement("span"); c.className = "coin fly"; c.textContent = "N";
+    c.style.left = ((from.left - sr.left) / s + 100 + Math.random() * 160) + "px";
+    c.style.top = ((from.top - sr.top) / s + 10) + "px";
+    c.style.setProperty("--dx", (300 - 150 - Math.random() * 60) + "px");
+    c.style.setProperty("--dy", (-330 - Math.random() * 20) + "px");
+    c.style.animationDelay = (i * 0.05) + "s";
+    stage.appendChild(c);
+    setTimeout((function(el){ return function(){ el.remove(); }; })(c), 1300);
+    setTimeout(sCoin, i * 60);
+  }
+}
+function showBubble(){ $("bubble").innerHTML = "💡 " + CONFIG.hint; $("bubble").classList.add("on"); }
+// parado sem mexer? primeiro a dica escrita, depois o botão de revelar pulsa
+function poke(){
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(function(){
+    if (won) return;
+    showBubble();
+    idleTimer = setTimeout(function(){ if (!won) $("hint").classList.add("nudge"); }, 4000);
+  }, 7000);
+}
+
+function powerOn(){
+  if (started) return;
+  audioInit();
+  if (ac && ac.state === "suspended") ac.resume();
+  $("intro").style.display = "none";
+  $("backdrop").classList.remove("on");
+  $("led").classList.add("on");
+  sNoise(0.85);
+  setTimeout(function(){
+    staticOn = false;
+    $("sil").classList.add("on"); $("osd").classList.add("on"); $("eq").classList.add("on");
+    $("ask").textContent = CONFIG.ask;
+    started = true; musicStart(); poke();
+  }, 850);
+}
+
+/* ---------- escala do palco ---------- */
+function fit(){ var s = Math.min(innerWidth / 360, innerHeight / 640); document.documentElement.style.setProperty("--s", s); }
+addEventListener("resize", fit);
+
+/* ---------- ligações ---------- */
+function boot(){
+  fit();
+  $("osd").textContent = CONFIG.osd;
+  $("hintCost").textContent = CONFIG.hintCost;
+  buildSlots(); buildKeys(); render();
+  $("intro").addEventListener("pointerdown", function(e){ e.preventDefault(); powerOn(); });
+  $("del").addEventListener("pointerdown", function(e){ e.preventDefault(); del(); });
+  $("hint").addEventListener("pointerdown", function(e){ e.preventDefault(); hint(); });
+  $("topcta").addEventListener("click", openStore);
+  $("end").addEventListener("click", openStore);
+  // toque na faixa de fora do palco: liga a TV na abertura, vai pra loja no fim
+  $("backdrop").addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    if (!started) powerOn(); else if (won) openStore();
+  });
+  // anúncio saiu da tela: música para (as redes cobram isso)
+  document.addEventListener("visibilitychange", function(){
+    if (!ac) return;
+    if (document.hidden) ac.suspend(); else if (started && !won) ac.resume();
+  });
+}
+
+// MRAID: espera o "ready" do container antes de montar a cena.
+if (window.mraid && typeof mraid.getState === "function" && mraid.getState() === "loading") {
+  mraid.addEventListener("ready", boot);
+} else if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else { boot(); }
+</script>
+</body>
+</html>
