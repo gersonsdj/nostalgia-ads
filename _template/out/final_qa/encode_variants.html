@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>encode variants</title>
+<!--
+  Video-only re-encodes of the renderer with alternative VideoEncoder settings, for the
+  encode-fidelity QA. Same frame loop as export.js (clear to black, drawFrame(ctx, i/30)).
+  encode_variants.html?name=b20&bitrate=20000000&mode=variable&kf=30&hw=no-preference
+    mode = variable | constant | quantizer (qp=<0..51> per frame via {avc:{quantizer}})
+  Writes out/final_qa/var_<name>.mp4. window.__done = { name, bytes, config, supported, ms }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace"><pre id="o">…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const name = q.get('name') || 'var';
+const bitrate = Number(q.get('bitrate') || 12e6);
+const mode = q.get('mode') || 'variable';
+const kf = Number(q.get('kf') || 30);
+const qp = Number(q.get('qp') || 20);
+const hw = q.get('hw') || 'no-preference';
+const codec = q.get('codec') || 'avc1.640028';
+const done = { name, errors: [] }; window.__done = null;
+const o = document.getElementById('o');
+(async () => {
+  const t0 = performance.now();
+  try {
+    const { W, H, FPS, FRAMES } = await import('/timeline.js');
+    const vis = await import('/visuals.js'); await vis.initVisuals();
+    const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.1/build/mp4-muxer.mjs');
+    const cfg = { codec, width: W, height: H, framerate: FPS, latencyMode: q.get('lat') || 'quality', avc: { format: 'avc' }, hardwareAcceleration: hw, bitrateMode: mode };
+    if (q.get('hint')) cfg.contentHint = q.get('hint');
+    if (mode !== 'quantizer') cfg.bitrate = bitrate;
+    const sup = await VideoEncoder.isConfigSupported(cfg);
+    done.supported = sup.supported; done.config = sup.config || cfg;
+    if (!sup.supported) throw new Error('unsupported config');
+    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+    let fail = null, chunks = 0;
+    const enc = new VideoEncoder({ output: (c, m) => { chunks++; muxer.addVideoChunk(c, m); }, error: e => { fail = e; } });
+    enc.configure(cfg);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d', { alpha: false });
+    for (let i = 0; i < FRAMES; i++) {
+      if (fail) throw fail;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none'; ctx.imageSmoothingEnabled = true; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+      ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+      ctx.save(); vis.drawFrame(ctx, i / FPS); ctx.restore();
+      const f = new VideoFrame(cv, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS), alpha: 'discard' });
+      const opts = { keyFrame: i % kf === 0 };
+      if (mode === 'quantizer') opts.avc = { quantizer: qp };
+      enc.encode(f, opts); f.close();
+      while (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 5));
+      if (i % 30 === 0) o.textContent = `${name}: frame ${i}`;
+    }
+    await enc.flush(); if (fail) throw fail; enc.close();
+    muxer.finalize();
+    const bytes = new Uint8Array(muxer.target.buffer);
+    done.bytes = bytes.length; done.chunks = chunks; done.mbps = +(bytes.length * 8 / 15 / 1e6).toFixed(2);
+    await fetch(`/save?dir=final_qa&name=var_${name}.mp4`, { method: 'POST', body: bytes });
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  done.ms = Math.round(performance.now() - t0);
+  window.__done = done; o.textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>

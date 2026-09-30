@@ -1,0 +1,70 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>decode test</title>
+<!--
+  Decodes an exported MP4 in a <video> element and checks it.
+  /out/test/decode_test.html?src=/out/test/stub_export.mp4&at=7.5&dir=test
+  window.__done = { ok, duration, videoWidth, videoHeight, at, nonBlackPct, meanLuma, saved, errors }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="o">decoding…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const src = q.get('src') || '/out/nostalgia_bomberman_9x16_15s.mp4';
+const at = Number(q.get('at') || 7.5);
+const dir = q.get('dir') || 'test';
+const done = { ok: false, src, errors: [] };
+window.__done = null;
+const once = (el, ev) => new Promise((res, rej) => {
+  el.addEventListener(ev, res, { once: true });
+  el.addEventListener('error', () => rej(new Error('video error ' + (el.error && el.error.message || el.error && el.error.code))), { once: true });
+});
+(async () => {
+  try {
+    const v = document.createElement('video');
+    v.muted = true; v.preload = 'auto'; v.playsInline = true;
+    // blob URL: the dev server has no Range support, so a plain URL would not be seekable
+    const bytes = await fetch(src + (src.includes('?') ? '&' : '?') + 'cb=' + Date.now()).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); });
+    done.bytes = bytes.size;
+    v.src = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+    await once(v, 'loadedmetadata');
+    Object.assign(done, { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight });
+    v.currentTime = at;
+    await once(v, 'seeked');
+    done.at = v.currentTime;
+    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let nonBlack = 0, luma = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const y = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      luma += y; if (y > 16) nonBlack++;
+    }
+    const px = d.length / 4;
+    done.nonBlackPct = +(100 * nonBlack / px).toFixed(2);
+    done.meanLuma = +(luma / px).toFixed(1);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const r = await fetch(`/save?dir=${dir}&name=decoded_${at}.png`, { method: 'POST', body: blob }).then(r => r.json());
+    done.saved = r.path;
+    // A/V sync: decode the AAC track and find beep onsets after known cue times
+    // (?onsets=0,3.75 — the stub audio beeps exactly at every cue).
+    try {
+      const ac = new OfflineAudioContext(2, 48000, 48000);
+      const ab = await ac.decodeAudioData(await bytes.arrayBuffer());
+      const ch = ab.getChannelData(0), sr = ab.sampleRate;
+      done.audio = { seconds: +(ab.length / sr).toFixed(4), sampleRate: sr, channels: ab.numberOfChannels, onsets: {} };
+      for (const cue of (q.get('onsets') || '0,3.75,8').split(',').map(Number)) {
+        let i = Math.max(0, Math.floor((cue - 0.1) * sr));
+        const lim = Math.min(ch.length, Math.floor((cue + 0.3) * sr));
+        while (i < lim && Math.abs(ch[i]) < 0.05) i++;
+        done.audio.onsets[cue] = i < lim ? +((i / sr - cue) * 1000).toFixed(2) + ' ms' : 'not found';
+      }
+    } catch (e) { done.errors.push('audio decode: ' + e); }
+    done.ok = Math.abs(v.duration - 15) < 0.1 && v.videoWidth === 1080 && v.videoHeight === 1920 && done.nonBlackPct > 5 && Math.abs(done.at - at) < 0.05;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  window.__done = done;
+  document.getElementById('o').textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>
