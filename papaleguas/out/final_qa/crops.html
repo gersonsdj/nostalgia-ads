@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ref vs dec crops</title>
+<!--
+  Side-by-side crops: REF | DEC | |diff|x4, each scaled by `s` (nearest).
+  crops.html?c=315:840:1680:240:200,232:80:440:240:240&s=3&pre=dec&dir=final_qa
+    pre=dec -> reads dec_fNNN.png (use pre=v2dec etc. for other runs)
+  Saves crop_fNNN_x_y.png. window.__done = { saved, errors }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace"><pre id="o">…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const s = Number(q.get('s') || 3), pre = q.get('pre') || 'dec', dir = q.get('dir') || 'final_qa';
+const specs = (q.get('c') || '').split(',').filter(Boolean).map(c => c.split(':').map(Number));
+const done = { saved: [], errors: [] }; window.__done = null;
+const bmp = async u => createImageBitmap(await fetch(u + '?cb=' + Date.now()).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.blob(); }));
+(async () => {
+  for (const [n, x, y, w, h] of specs) {
+    try {
+      const p = String(n).padStart(3, '0');
+      const [R, D] = await Promise.all([bmp(`/out/final_qa/ref_f${p}.png`), bmp(`/out/final_qa/${pre}_f${p}.png`)]);
+      const c = document.createElement('canvas'); c.width = 3 * w * s + 16; c.height = h * s + 20;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingEnabled = false;
+      g.fillStyle = '#808080'; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(R, x, y, w, h, 0, 20, w * s, h * s);
+      g.drawImage(D, x, y, w, h, w * s + 8, 20, w * s, h * s);
+      const a = g.getImageData(0, 20, w * s, h * s), b = g.getImageData(w * s + 8, 20, w * s, h * s);
+      for (let i = 0; i < a.data.length; i += 4) for (let k = 0; k < 3; k++) a.data[i + k] = Math.min(255, 4 * Math.abs(a.data[i + k] - b.data[i + k]));
+      g.putImageData(a, 2 * (w * s + 8), 20);
+      g.fillStyle = '#fff'; g.font = '14px monospace';
+      g.fillText(`f${p} (${x},${y}) ${w}x${h}  REF | ${pre.toUpperCase()} | |diff|x4`, 4, 14);
+      const name = `crop_${pre}_f${p}_${x}_${y}.png`;
+      await fetch(`/save?dir=${dir}&name=${name}`, { method: 'POST', body: await new Promise(r => c.toBlob(r, 'image/png')) });
+      done.saved.push(name);
+    } catch (e) { done.errors.push(String(e)); }
+  }
+  window.__done = done; document.getElementById('o').textContent = JSON.stringify(done);
+})();
+</script>
+</body>

@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>crop harness</title>
+<!--
+  Zoom-crop harness (agents): crops the same output-px rect out of several PNGs already saved
+  under out/, scales it by s (nearest neighbour) and saves each as <dir>/c_<name>.png, plus
+  a strip of all of them side by side as <dir>/c_strip.png.
+  crop.html?src=out/base_keys/t03.73.png,out/base_keys/t04.13.png&x=100&y=800&w=300&h=300&s=2&dir=crops
+  Optional per-image rects: &rects=x,y,w,h;x,y,w,h;...  (one per src, same w/h recommended)
+  Optional marks (output px, one "x,y" per src, drawn as a 1-px cyan cross): &marks=x,y;x,y
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="o">running…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const srcs = (q.get('src') || '').split(',').filter(Boolean);
+const dir = q.get('dir') || 'crops';
+const s = Number(q.get('s') || 2);
+const base = [Number(q.get('x') || 0), Number(q.get('y') || 0), Number(q.get('w') || 200), Number(q.get('h') || 200)];
+const rects = q.get('rects') ? q.get('rects').split(';').map((r) => r.split(',').map(Number)) : null;
+const marks = q.get('marks') ? q.get('marks').split(';').map((r) => r.split(',').map(Number)) : null;
+const done = { ok: false, saved: [], errors: [] };
+const post = (name, blob) => fetch(`/save?dir=${dir}&name=${encodeURIComponent(name)}`, { method: 'POST', body: blob }).then((r) => r.json());
+(async () => {
+  try {
+    const outs = [];
+    for (let i = 0; i < srcs.length; i++) {
+      const img = await createImageBitmap(await (await fetch('/' + srcs[i])).blob());
+      const [x, y, w, h] = rects ? rects[i] : base;
+      const c = document.createElement('canvas'); c.width = w * s; c.height = h * s;
+      const x2 = c.getContext('2d'); x2.imageSmoothingEnabled = false;
+      x2.drawImage(img, x, y, w, h, 0, 0, w * s, h * s);
+      if (marks && marks[i]) {
+        const [mx, my] = marks[i];
+        x2.fillStyle = '#00ffff';
+        x2.fillRect((mx - x) * s - 12, (my - y) * s, 25, 1);
+        x2.fillRect((mx - x) * s, (my - y) * s - 12, 1, 25);
+      }
+      const name = 'c_' + srcs[i].split('/').pop();
+      await post(name, await new Promise((r) => c.toBlob(r, 'image/png')));
+      done.saved.push(dir + '/' + name);
+      outs.push({ c, label: srcs[i].split('/').pop() });
+    }
+    if (outs.length) {
+      const pad = 6, lh = 16;
+      const W = outs.reduce((a, o) => a + o.c.width + pad, pad), H = Math.max(...outs.map((o) => o.c.height)) + lh + pad * 2;
+      const st = document.createElement('canvas'); st.width = W; st.height = H;
+      const sx = st.getContext('2d'); sx.fillStyle = '#222'; sx.fillRect(0, 0, W, H);
+      sx.font = '13px monospace'; sx.fillStyle = '#fff';
+      let xx = pad;
+      for (const o of outs) { sx.fillText(o.label, xx, lh - 2); sx.drawImage(o.c, xx, lh + pad); xx += o.c.width + pad; }
+      await post('c_strip.png', await new Promise((r) => st.toBlob(r, 'image/png')));
+      done.saved.push(dir + '/c_strip.png');
+    }
+    done.ok = true;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  window.__done = done;
+  document.getElementById('o').textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>

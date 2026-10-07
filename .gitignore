@@ -4,6 +4,7 @@ entregas/
 !**/out/audio_qa/
 !**/out/final_qa/
 !**/out/test/
+!**/out/tools/
 **/out/audio/*
 !**/out/audio/analyze.mjs
 **/out/audio_qa/*
@@ -16,6 +17,10 @@ entregas/
 !**/out/test/mp4probe.mjs
 !**/out/test/decode_test.html
 !**/out/judging.json
+**/out/tools/*
+!**/out/tools/headless.mjs
+!**/out/tools/crop.html
+!**/out/tools/imginfo.html
 *.mp4
 *.wav
 *.f32

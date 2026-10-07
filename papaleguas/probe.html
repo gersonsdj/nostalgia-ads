@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>probe</title>
+<body style="background:#111;color:#eee;font:14px monospace">
+<pre id="o">probing…</pre>
+<script>
+(async () => {
+  const r = { ua: navigator.userAgent, secure: window.isSecureContext,
+    VideoEncoder: typeof VideoEncoder, AudioEncoder: typeof AudioEncoder,
+    OfflineAudioContext: typeof OfflineAudioContext, OffscreenCanvas: typeof OffscreenCanvas };
+  const vcodecs = ['avc1.640028', 'avc1.42E028', 'avc1.4D0028', 'avc1.640033', 'vp09.00.40.08', 'vp8', 'av01.0.08M.08'];
+  r.video = {};
+  for (const codec of vcodecs) {
+    for (const hw of ['no-preference', 'prefer-software']) {
+      try {
+        const s = await VideoEncoder.isConfigSupported({ codec, width: 1080, height: 1920, bitrate: 8e6, framerate: 30, hardwareAcceleration: hw, avc: codec.startsWith('avc') ? { format: 'avc' } : undefined });
+        r.video[codec + '/' + hw] = s.supported;
+      } catch (e) { r.video[codec + '/' + hw] = 'ERR ' + e.message; }
+    }
+  }
+  r.audio = {};
+  for (const codec of ['mp4a.40.2', 'opus']) {
+    try {
+      const s = await AudioEncoder.isConfigSupported({ codec, sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 });
+      r.audio[codec] = s.supported;
+    } catch (e) { r.audio[codec] = 'ERR ' + e.message; }
+  }
+  r.recorderMp4 = typeof MediaRecorder !== 'undefined' ? ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus'].map(t => t + '=' + MediaRecorder.isTypeSupported(t)) : 'none';
+  for (const u of ['https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs', 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.1/build/mp4-muxer.mjs']) {
+    try { const m = await import(u); r['muxer ' + u] = Object.keys(m).join(','); } catch (e) { r['muxer ' + u] = 'ERR ' + e.message; }
+  }
+  try { const f = new FontFace('PS2P', 'url(https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2)'); await f.load(); r.font = 'ok'; } catch (e) { r.font = 'ERR ' + e.message; }
+  window.__probe = r;
+  document.getElementById('o').textContent = JSON.stringify(r, null, 2);
+})();
+</script>
+</body>

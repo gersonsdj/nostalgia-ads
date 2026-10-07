@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>audio harness</title>
+<!--
+  Audio render harness (for agents, no UI needed).
+  audio_check.html?m=audio.js&dir=audio
+  Imports the module, awaits renderAudio({ sampleRate: 48000 }) -> AudioBuffer,
+  encodes 16-bit PCM WAV and POSTs it to /save?dir=<dir>&name=audio.wav.
+  Result in window.__done = { ok, seconds, channels, sampleRate, peak, errors, ms }.
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="o">rendering…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const mod = q.get('m') || 'audio.js';
+const dir = q.get('dir') || 'audio';
+const out = document.getElementById('o');
+const done = { ok: false, errors: [] };
+window.__done = null;
+function wav(buf) {
+  const ch = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
+  const data = new DataView(new ArrayBuffer(44 + n * ch * 2));
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); data.setUint32(4, 36 + n * ch * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, ch, true);
+  data.setUint32(24, sr, true); data.setUint32(28, sr * ch * 2, true); data.setUint16(32, ch * 2, true);
+  data.setUint16(34, 16, true); w(36, 'data'); data.setUint32(40, n * ch * 2, true);
+  const chans = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
+  let o = 44, peak = 0;
+  for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) {
+    const v = chans[c][i]; peak = Math.max(peak, Math.abs(v));
+    data.setInt16(o, Math.max(-1, Math.min(1, v)) * 0x7fff, true); o += 2;
+  }
+  return { blob: new Blob([data.buffer], { type: 'audio/wav' }), peak };
+}
+(async () => {
+  const t0 = performance.now();
+  try {
+    const m = await import('./' + mod + '?cb=' + Date.now());
+    const buf = await m.renderAudio({ sampleRate: 48000 });
+    const { blob, peak } = wav(buf);
+    const r = await fetch(`/save?dir=${dir}&name=audio.wav`, { method: 'POST', body: blob }).then(r => r.json());
+    Object.assign(done, { seconds: buf.length / buf.sampleRate, channels: buf.numberOfChannels, sampleRate: buf.sampleRate, peak, peakDb: 20 * Math.log10(peak || 1e-9), saved: r.path });
+    done.ok = true;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  done.ms = Math.round(performance.now() - t0);
+  window.__done = done;
+  out.textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>

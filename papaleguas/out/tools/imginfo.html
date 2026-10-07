@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>image info</title>
+<!--
+  Image inspector (for agents): imginfo.html?src=/assets/app_icon.png&px=0:0,512:512
+  Reports size, alpha at the given points (and the four corners), the opaque bounding box
+  and the most frequent colours. window.__done = { ok, w, h, points, bbox, top }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace"><pre id="o">…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const done = { ok: false, errors: [] };
+window.__done = null;
+try {
+  const bmp = await createImageBitmap(await (await fetch(q.get('src'))).blob());
+  const c = new OffscreenCanvas(bmp.width, bmp.height), x = c.getContext('2d');
+  x.drawImage(bmp, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height).data, w = c.width, h = c.height;
+  const at = (px, py) => { const i = (py * w + px) * 4; return [d[i], d[i + 1], d[i + 2], d[i + 3]]; };
+  const pts = (q.get('px') || '').split(',').filter(Boolean).map((s) => s.split(':').map(Number));
+  pts.push([0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]);
+  done.points = pts.map(([px, py]) => ({ px, py, rgba: at(px, py) }));
+  let x0 = w, y0 = h, x1 = -1, y1 = -1; const hist = new Map();
+  for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+    const i = (py * w + px) * 4;
+    if (d[i + 3] > 8) { x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py); }
+    const k = '#' + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('') + (d[i + 3] < 255 ? '/' + d[i + 3] : '');
+    hist.set(k, (hist.get(k) || 0) + 1);
+  }
+  // first row / column where alpha is full, to measure rounded corners
+  let cornerR = 0; while (cornerR < w / 2 && at(cornerR, cornerR)[3] < 250) cornerR++;
+  Object.assign(done, { ok: true, w, h, bbox: { x0, y0, x1, y1 }, cornerDiagonalOpaqueAt: cornerR,
+    top: [...hist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16) });
+} catch (e) { done.errors.push(String(e && e.stack || e)); }
+window.__done = done;
+document.getElementById('o').textContent = JSON.stringify(done, null, 1);
+</script>
+</body>

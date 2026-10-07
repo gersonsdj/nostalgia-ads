@@ -1,0 +1,39 @@
+NOSTALGIA - anúncio "Qual é o desenho?" (canal DESENHOS / CH19, fase 1, resposta PAPALÉGUAS)
+=========================================================================================
+
+1) VÍDEO (entregas/papaleguas/)
+   Nostalgia_PapaLeguas_9x16_15s.mp4
+   - 1080x1920 (9:16), 30 fps, 15,000 s (450 quadros), início rápido (moov no começo)
+   - H.264 High, nível 4.1, ~6,2 Mbps; AAC-LC 48 kHz estéreo, 192 kbps
+   - Áudio: -14 LUFS integrado; pico real -1,8 dBTP (medido no arquivo decodificado)
+   - SHA-256 886b86800302d052cfe0f210fb667882d08299304bde555258217a5c16ceab4e
+
+2) CAPAS (PNG 1080x1920, renderizadas sem perdas)
+   capa_cartela_final.png      = último quadro (14,97 s): ícone oficial do app, NOSTALGIA,
+                                 pergunta, "Grátis" e lojas. Mesmo padrão das entregas anteriores.
+   capa_alternativa_gancho.png = quadro 47 (1,57 s): app + os dois "BIP!" + nuvem de poeira +
+                                 legenda. Não mostra a resposta. Boa para prévias e grades de
+                                 perfil, já que o vídeo abre em estática de TV quase preta.
+
+3) ESTA PASTA (fonte)
+   - timeline.js (contrato), visuals.js e audio.js (produção), export.js, index.html (player e
+     exportador), snap.html e audio_check.html (harnesses), server.mjs.
+   - visuals_a.js e visuals_b.js: as duas direções de arte que foram ao júri (venceu a A, 2 a 1).
+   - assets/app_icon.png: ícone oficial do app (cartela final e abertura 0-1 s), desenhado na
+     resolução de saída, sem pixelizar. assets/character.png continua sendo o slot da arte
+     licenciada do personagem (testado com imagem de teste).
+   - out/: ferramentas de QA, relatórios e o registro da produção (phase1/2/3_result.json,
+     judging.json). out/tools/headless.mjs renderiza em Chrome headless isolado, e é o que
+     permitiu vários agentes renderizarem em paralelo.
+   Para reexportar: node server.mjs --port 5181 e abrir http://localhost:5181/ (botão Exportar),
+   ou: node out/tools/headless.mjs "http://localhost:5181/index.html" --wait "window.app && app.ready"
+   --eval "app.exportMp4()". Requer internet (fontes Press Start 2P / Jersey do Google Fonts).
+
+4) ANTES DE PUBLICAR (validação humana)
+   - Trilha e efeitos foram medidos, mas ninguém os ouviu. Falta a escuta final em fone e em
+     alto-falante de celular. Em especial: o "bip-bip" tem que soar como buzina genérica de duas
+     notas (e não como a voz do desenho), e a trilha não pode lembrar nenhum tema existente.
+   - O cartão do personagem usa arte ORIGINAL provisória (placa de estrada com nuvem de poeira).
+     Para o personagem real, coloque a arte licenciada em assets/character.png e exporte de novo.
+   - Aprovação jurídica/marca do uso de "PAPALÉGUAS" como resposta (com o aviso "Marcas citadas
+     pertencem aos seus respectivos donos.").
