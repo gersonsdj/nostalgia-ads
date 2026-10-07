@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>final QA decode</title>
+<!--
+  Audio + A/V QA of the exported MP4 FILE (not the code).
+  window.qa.decodeWA(src, name)   -> OfflineAudioContext.decodeAudioData on the file bytes -> float32 WAV in out/final_qa/
+  window.qa.decodeWC(src, name)   -> raw WebCodecs AudioDecoder on the demuxed AAC packets (no trimming at all) -> WAV
+  window.qa.frames(src, list)     -> per-frame mean luma + diff vs previous frame, via <video> seeks
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="o">ready</pre>
+<script type="module">
+const out = document.getElementById('o');
+const log = s => { out.textContent += '\n' + s; };
+const bytesOf = async src => new Uint8Array(await fetch(src + (src.includes('?') ? '&' : '?') + 'cb=' + Date.now()).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }));
+
+function wavF32(chs, sr) {
+  const n = chs[0].length, C = chs.length, dataBytes = n * C * 4;
+  const b = new ArrayBuffer(44 + dataBytes), v = new DataView(b);
+  const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, 36 + dataBytes, true); s(8, 'WAVE'); s(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 3, true); v.setUint16(22, C, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * C * 4, true); v.setUint16(32, C * 4, true); v.setUint16(34, 32, true);
+  s(36, 'data'); v.setUint32(40, dataBytes, true);
+  const f = new Float32Array(b, 44);
+  for (let i = 0; i < n; i++) for (let c = 0; c < C; c++) f[i * C + c] = chs[c][i];
+  return new Blob([b], { type: 'audio/wav' });
+}
+const save = (blob, name) => fetch(`/save?dir=final_qa&name=${name}`, { method: 'POST', body: blob }).then(r => r.json());
+
+async function decodeWA(src, name = 'decoded_audio.wav') {
+  const u8 = await bytesOf(src);
+  const ac = new OfflineAudioContext(2, 48000, 48000);
+  const ab = await ac.decodeAudioData(u8.buffer.slice(0));
+  const chs = []; for (let c = 0; c < ab.numberOfChannels; c++) chs.push(ab.getChannelData(c));
+  const r = await save(wavF32(chs, ab.sampleRate), name);
+  return { frames: ab.length, seconds: ab.length / ab.sampleRate, sr: ab.sampleRate, ch: ab.numberOfChannels, saved: r.path, bytes: r.bytes };
+}
+
+// ---- minimal MP4 demux of the audio track ----
+function boxes(u8, dv, s, e) {
+  const r = []; let o = s;
+  while (o + 8 <= e) {
+    let size = dv.getUint32(o); const type = String.fromCharCode(...u8.subarray(o + 4, o + 8)); let h = 8;
+    if (size === 1) { size = Number(dv.getBigUint64(o + 8)); h = 16; } else if (size === 0) size = e - o;
+    r.push({ type, s: o, b: o + h, e: o + size }); o += size;
+  }
+  return r;
+}
+function audioTrack(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const top = boxes(u8, dv, 0, u8.length);
+  const moov = top.find(b => b.type === 'moov');
+  const kid = (b, t) => boxes(u8, dv, b.b, b.e).find(x => x.type === t);
+  for (const trak of boxes(u8, dv, moov.b, moov.e).filter(b => b.type === 'trak')) {
+    const mdia = kid(trak, 'mdia'), hdlr = kid(mdia, 'hdlr');
+    if (String.fromCharCode(...u8.subarray(hdlr.b + 8, hdlr.b + 12)) !== 'soun') continue;
+    const stbl = kid(kid(mdia, 'minf'), 'stbl');
+    const stsz = kid(stbl, 'stsz'), stco = kid(stbl, 'stco') || kid(stbl, 'co64'), stsc = kid(stbl, 'stsc'), stsd = kid(stbl, 'stsd');
+    const n = dv.getUint32(stsz.b + 8), fixed = dv.getUint32(stsz.b + 4);
+    const sizes = Array.from({ length: n }, (_, i) => fixed || dv.getUint32(stsz.b + 12 + i * 4));
+    const co64 = stco.type === 'co64', nc = dv.getUint32(stco.b + 4);
+    const offs = Array.from({ length: nc }, (_, i) => co64 ? Number(dv.getBigUint64(stco.b + 8 + i * 8)) : dv.getUint32(stco.b + 8 + i * 4));
+    const ns = dv.getUint32(stsc.b + 4), sc = Array.from({ length: ns }, (_, i) => ({ first: dv.getUint32(stsc.b + 8 + i * 12), spc: dv.getUint32(stsc.b + 12 + i * 12) }));
+    const samples = []; let si = 0;
+    for (let c = 0; c < nc && si < n; c++) {
+      let spc = 0; for (const x of sc) if (c + 1 >= x.first) spc = x.spc;
+      let o = offs[c];
+      for (let k = 0; k < spc && si < n; k++) { samples.push({ o, len: sizes[si] }); o += sizes[si]; si++; }
+    }
+    // AudioSpecificConfig = DecoderSpecificInfo (tag 0x05) inside esds
+    let asc = null;
+    for (let i = stsd.b; i < stsd.e - 2; i++) if (u8[i] === 0x05 && i > stsd.b + 40) {
+      let j = i + 1, len = 0; for (let k = 0; k < 4; k++) { const x = u8[j++]; len = (len << 7) | (x & 0x7f); if (!(x & 0x80)) break; }
+      if (len >= 2 && len <= 8) { asc = u8.slice(j, j + len); break; }
+    }
+    return { samples, asc };
+  }
+  throw new Error('no audio track');
+}
+async function decodeWC(src, name = 'decoded_raw_webcodecs.wav') {
+  const u8 = await bytesOf(src);
+  const { samples, asc } = audioTrack(u8);
+  const parts = []; let err = null;
+  const dec = new AudioDecoder({
+    output: ad => {
+      const L = new Float32Array(ad.numberOfFrames), R = new Float32Array(ad.numberOfFrames);
+      ad.copyTo(L, { planeIndex: 0, format: 'f32-planar' }); ad.copyTo(R, { planeIndex: 1, format: 'f32-planar' });
+      parts.push({ ts: ad.timestamp, L, R }); ad.close();
+    },
+    error: e => { err = e; },
+  });
+  dec.configure({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, description: asc });
+  samples.forEach((s, i) => dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(i * 1024 * 1e6 / 48000), duration: Math.round(1024 * 1e6 / 48000), data: u8.subarray(s.o, s.o + s.len) })));
+  await dec.flush();
+  if (err) throw err;
+  const n = parts.reduce((a, p) => a + p.L.length, 0);
+  const L = new Float32Array(n), R = new Float32Array(n); let o = 0;
+  for (const p of parts) { L.set(p.L, o); R.set(p.R, o); o += p.L.length; }
+  const r = await save(wavF32([L, R], 48000), name);
+  return { packets: samples.length, outputs: parts.length, frames: n, seconds: n / 48000, asc: Array.from(asc || []).map(x => x.toString(16)), firstTs: parts[0] && parts[0].ts, saved: r.path };
+}
+
+// ---- picture: mean luma + diff vs previous frame, for a list of frame indices ----
+async function frames(src, list, fps = 30) {
+  const u8 = await bytesOf(src);
+  const v = document.createElement('video'); v.muted = true; v.preload = 'auto';
+  v.src = URL.createObjectURL(new Blob([u8], { type: 'video/mp4' }));
+  await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('video error')); });
+  const w = 270, h = 480, c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const res = []; let prev = null, prevIdx = null;
+  for (const i of list) {
+    v.currentTime = (i + 0.5) / fps;
+    await new Promise(r => v.addEventListener('seeked', r, { once: true }));
+    ctx.drawImage(v, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const Y = new Float32Array(w * h); let m = 0;
+    for (let p = 0; p < w * h; p++) { Y[p] = 0.2126 * d[p * 4] + 0.7152 * d[p * 4 + 1] + 0.0722 * d[p * 4 + 2]; m += Y[p]; }
+    let diff = null;
+    if (prev && prevIdx === i - 1) { diff = 0; for (let p = 0; p < w * h; p++) diff += Math.abs(Y[p] - prev[p]); diff /= w * h; }
+    res.push({ i, t: +(i / fps).toFixed(4), luma: +(m / (w * h)).toFixed(2), diff: diff == null ? null : +diff.toFixed(3) });
+    prev = Y; prevIdx = i;
+  }
+  return res;
+}
+window.qa = { decodeWA, decodeWC, frames, save };
+log('qa ready');
+</script>
+</body>

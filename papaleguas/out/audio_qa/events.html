@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>audio QA events</title>
+<!--
+  QA harness: out/audio_qa/events.html?m=audio.js&dir=audio_qa_ev
+  Renders every event of the module's EVENT_IDS SOLO (renderAudio({ raw: true, only: id })) and saves,
+  for each, the non-silent span as little-endian float32 interleaved stereo: ev_<id>.f32, plus
+  events.json = { sampleRate, events: { id: { s0, n, peak } } } (s0 = first saved sample index).
+  Analyse with: node out/audio_qa/sync.mjs [dir]
+  window.__done = { ok, errors, ms, info }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace"><pre id="o">rendering…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const mod = q.get('m') || 'audio.js';
+const dir = q.get('dir') || 'audio_qa_ev';
+const out = document.getElementById('o');
+const done = { ok: false, errors: [], info: {} };
+window.__done = null;
+async function save(name, body) {
+  const r = await fetch(`/save?dir=${dir}&name=${name}`, { method: 'POST', body }).then(r => r.json());
+  return r.bytes;
+}
+(async () => {
+  const t0 = performance.now();
+  try {
+    const m = await import('../../' + mod + '?cb=' + Date.now());
+    const sr = 48000, meta = { sampleRate: sr, events: {} };
+    for (const id of m.EVENT_IDS) {
+      const buf = await m.renderAudio({ sampleRate: sr, raw: true, only: id });
+      const L = buf.getChannelData(0), R = buf.getChannelData(1), n = buf.length;
+      let a = -1, b = -1, peak = 0;
+      for (let i = 0; i < n; i++) { const v = Math.max(Math.abs(L[i]), Math.abs(R[i])); if (v > 0) { if (a < 0) a = i; b = i; } if (v > peak) peak = v; }
+      if (a < 0) { meta.events[id] = { s0: 0, n: 0, peak: 0 }; continue; }
+      const s0 = Math.max(0, a - 480), s1 = Math.min(n, b + 481), f = new Float32Array((s1 - s0) * 2);
+      for (let i = s0; i < s1; i++) { f[2 * (i - s0)] = L[i]; f[2 * (i - s0) + 1] = R[i]; }
+      await save(`ev_${id}.f32`, new Blob([f.buffer]));
+      meta.events[id] = { s0, n: s1 - s0, peak };
+      done.info[id] = { t0: +(a / sr).toFixed(4), t1: +(b / sr).toFixed(4) };
+      out.textContent = JSON.stringify(done.info, null, 1);
+    }
+    await save('events.json', new Blob([JSON.stringify(meta)]));
+    done.ok = true;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  done.ms = Math.round(performance.now() - t0);
+  window.__done = done;
+  out.textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>

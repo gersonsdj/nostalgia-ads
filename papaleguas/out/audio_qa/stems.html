@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>audio QA stems</title>
+<!--
+  QA harness: out/audio_qa/stems.html?m=audio.js&dir=audio_qa
+  Renders the module several ways and saves raw little-endian float32 interleaved stereo:
+    mastered_a.f32, mastered_b.f32 (two independent mastered renders -> determinism),
+    raw_full.f32, raw_music.f32, raw_sfx.f32 (unmastered; stems via renderAudio({solo})).
+  window.__done = { ok, errors, ms, info }
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace"><pre id="o">rendering…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const mod = q.get('m') || 'audio.js';
+const dir = q.get('dir') || 'audio_qa';
+const out = document.getElementById('o');
+const done = { ok: false, errors: [], info: {} };
+window.__done = null;
+function f32(buf) {
+  const ch = buf.numberOfChannels, n = buf.length, a = new Float32Array(n * 2);
+  const c0 = buf.getChannelData(0), c1 = buf.getChannelData(ch > 1 ? 1 : 0);
+  for (let i = 0; i < n; i++) { a[2 * i] = c0[i]; a[2 * i + 1] = c1[i]; }
+  return a;
+}
+async function save(name, arr) {
+  const r = await fetch(`/save?dir=${dir}&name=${name}`, { method: 'POST', body: new Blob([arr.buffer]) }).then(r => r.json());
+  return r.bytes;
+}
+(async () => {
+  const t0 = performance.now();
+  try {
+    const m = await import('../../' + mod + '?cb=' + Date.now());
+    const runs = [['mastered_a', {}], ['mastered_b', {}], ['raw_full', { raw: true }], ['raw_music', { raw: true, solo: 'music' }], ['raw_sfx', { raw: true, solo: 'sfx' }]];
+    for (const [name, opt] of runs) {
+      const s = performance.now();
+      const buf = await m.renderAudio({ sampleRate: 48000, ...opt });
+      const a = f32(buf);
+      let bad = 0; for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) bad++;
+      done.info[name] = { bytes: await save(name + '.f32', a), nonFinite: bad, ms: Math.round(performance.now() - s) };
+    }
+    done.ok = true;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  done.ms = Math.round(performance.now() - t0);
+  window.__done = done;
+  out.textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>

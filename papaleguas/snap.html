@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>snap harness</title>
+<!--
+  Frame snapshot harness (for agents, no UI needed).
+  snap.html?v=visuals_a.js&times=0.5,1.2,2.6&dir=snaps_a
+  Imports the visuals module, calls initVisuals(), renders each time with
+  drawFrame(ctx, t) on a 1080x1920 canvas and POSTs a PNG per time to
+  /save?dir=<dir>&name=t<time>.png. Also a contact sheet (all times, scaled) as sheet.png.
+  Result lands in window.__done = { ok, saved:[...], errors:[...], ms }.
+-->
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="o">running…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const mod = q.get('v') || 'visuals.js';
+const dir = q.get('dir') || 'snaps';
+const times = (q.get('times') || '0.5,1.1,1.6,2.2,2.6,3.2,4.0,5.5,7.5,8.2,9.3,11,12.1,12.6,13.6,14.9')
+  .split(',').map(Number).filter(n => !Number.isNaN(n));
+const out = document.getElementById('o');
+const done = { ok: false, saved: [], errors: [], ms: 0 };
+window.__done = null;
+const post = (name, blob, d = dir) => fetch(`/save?dir=${d}&name=${encodeURIComponent(name)}`, { method: 'POST', body: blob }).then(r => r.json());
+window.addEventListener('error', e => done.errors.push('window.error: ' + e.message));
+(async () => {
+  const t0 = performance.now();
+  try {
+    const { W, H } = await import('./timeline.js');
+    const m = await import('./' + mod + '?cb=' + Date.now());
+    if (m.initVisuals) await m.initVisuals();
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    const cols = Math.min(times.length, 8), rows = Math.ceil(times.length / cols);
+    const sw = 216, sh = 384, pad = 8;
+    const sheet = document.createElement('canvas');
+    sheet.width = cols * (sw + pad) + pad; sheet.height = rows * (sh + pad + 18) + pad;
+    const sctx = sheet.getContext('2d');
+    sctx.fillStyle = '#222'; sctx.fillRect(0, 0, sheet.width, sheet.height);
+    sctx.font = '14px monospace'; sctx.fillStyle = '#fff';
+    for (let i = 0; i < times.length; i++) {
+      const t = times[i];
+      try {
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.clearRect(0, 0, W, H); ctx.restore();
+        m.drawFrame(ctx, t);
+        const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+        const name = `t${t.toFixed(2).padStart(5, '0')}.png`;
+        await post(name, blob);
+        done.saved.push(`${dir}/${name}`);
+        const x = pad + (i % cols) * (sw + pad), y = pad + Math.floor(i / cols) * (sh + pad + 18);
+        sctx.drawImage(c, x, y + 18, sw, sh);
+        sctx.fillText(`t=${t.toFixed(2)}`, x, y + 14);
+      } catch (e) { done.errors.push(`t=${t}: ${e && e.stack || e}`); }
+    }
+    const sb = await new Promise(r => sheet.toBlob(r, 'image/png'));
+    await post('sheet.png', sb);
+    done.saved.push(`${dir}/sheet.png`);
+    // Determinism check: same t twice must give identical pixels.
+    try {
+      const probeT = times[Math.floor(times.length / 2)];
+      const grab = () => { ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H); ctx.restore(); m.drawFrame(ctx, probeT); return ctx.getImageData(0, 0, W, H).data; };
+      const a = grab(), b = grab();
+      let diff = 0; for (let k = 0; k < a.length; k += 4) if (a[k] !== b[k] || a[k+1] !== b[k+1] || a[k+2] !== b[k+2]) diff++;
+      done.deterministic = diff === 0; done.nondeterministicPixels = diff;
+    } catch (e) { done.errors.push('determinism: ' + e); }
+    // Speed: time 30 consecutive frames.
+    try {
+      const s = performance.now();
+      for (let f = 0; f < 30; f++) m.drawFrame(ctx, 5 + f / 30);
+      done.msPerFrame = (performance.now() - s) / 30;
+    } catch (e) { done.errors.push('perf: ' + e); }
+    done.ok = done.errors.length === 0;
+  } catch (e) { done.errors.push(String(e && e.stack || e)); }
+  done.ms = Math.round(performance.now() - t0);
+  window.__done = done;
+  out.textContent = JSON.stringify(done, null, 2);
+})();
+</script>
+</body>
